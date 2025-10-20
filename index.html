@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>声方向半目目玉アプリ</title>
+<style>
+  body {
+    margin: 0;
+    background: black;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  canvas {
+    background: black;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="eyeCanvas" width="400" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById('eyeCanvas');
+const ctx = canvas.getContext('2d');
+
+const centerX = canvas.width/2;
+const centerY = canvas.height/2;
+const eyeRadius = 100;    // 白目半径
+const pupilRadius = 85;   // 黒目半径
+
+let pupilOffsetX = 0;     // 現在位置
+let targetOffsetX = 0;    // 目標位置
+let pupilScaleY = 1;      // まばたき用縦スケール
+
+let holdTimeout = null;
+let isBlinkingPhase = false;
+let blinkCount = 0;
+
+// ランダム値生成
+function rand(min,max){ return Math.random()*(max-min)+min; }
+
+// 描画
+function drawEye(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // 下半分だけ描画（クリッピング）
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, canvas.height/2, canvas.width, canvas.height/2);
+  ctx.clip();
+
+  // 白目
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.scale(1, pupilScaleY);
+  ctx.beginPath();
+  ctx.arc(0,0,eyeRadius,0,Math.PI*2);
+  ctx.fillStyle = "white";
+  ctx.fill();
+  ctx.closePath();
+
+  // 黒目
+  ctx.beginPath();
+  ctx.arc(pupilOffsetX,0,pupilRadius,0,Math.PI*2);
+  ctx.fillStyle = "black";
+  ctx.fill();
+  ctx.closePath();
+  ctx.restore();
+
+  ctx.restore(); // clip解除
+
+  requestAnimationFrame(drawEye);
+}
+drawEye();
+
+// マイク入力
+navigator.mediaDevices.getUserMedia({ audio: true })
+.then(stream => {
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(stream);
+  const splitter = audioContext.createChannelSplitter(2);
+
+  source.connect(splitter);
+
+  const analyserL = audioContext.createAnalyser();
+  const analyserR = audioContext.createAnalyser();
+
+  splitter.connect(analyserL,0);
+  splitter.connect(analyserR,1);
+
+  analyserL.fftSize = analyserR.fftSize = 512;
+  const dataL = new Uint8Array(analyserL.frequencyBinCount);
+  const dataR = new Uint8Array(analyserR.frequencyBinCount);
+
+  function animateAudio(){
+    analyserL.getByteTimeDomainData(dataL);
+    analyserR.getByteTimeDomainData(dataR);
+
+    let sumL = 0, sumR = 0;
+    for(let i=0;i<dataL.length;i++){
+      let vL = dataL[i]/128 - 1;
+      let vR = dataR[i]/128 - 1;
+      sumL += vL*vL;
+      sumR += vR*vR;
+    }
+    let rmsL = Math.sqrt(sumL / dataL.length);
+    let rmsR = Math.sqrt(sumR / dataR.length);
+
+    let diff = rmsL - rmsR;
+
+    if(!isBlinkingPhase && Math.abs(diff)>0.01){
+      targetOffsetX = Math.max(-100, Math.min(100, diff * 200));
+
+      if(holdTimeout) clearTimeout(holdTimeout);
+      holdTimeout = setTimeout(()=>{
+        targetOffsetX = 0; // 5秒後に正面
+      },5000);
+    }
+
+    // スムージングで移動
+    pupilOffsetX += (targetOffsetX - pupilOffsetX) * 0.05;
+
+    requestAnimationFrame(animateAudio);
+  }
+  animateAudio();
+
+})
+.catch(err => console.log('マイク未許可', err));
+
+// 1分後にまばたき2回→元に戻す
+setTimeout(()=>{
+  isBlinkingPhase = true;
+  function blinkOnce(){
+    pupilScaleY = 0.05;
+    setTimeout(()=>{
+      pupilScaleY = 1;
+      blinkCount++;
+      if(blinkCount<2){
+        setTimeout(blinkOnce, rand(200,600));
+      } else {
+        isBlinkingPhase = false;
+      }
+    }, rand(150,300));
+  }
+  blinkOnce();
+},60000);
+
+</script>
+
+</body>
+</html>
