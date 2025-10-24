@@ -3,211 +3,283 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>半目キョロキョロアニメ</title>
+<title>Eye Animation ver.8（音声停止制御付き）</title>
 <style>
-html, body {
+  html, body {
     margin: 0;
-    padding: 0;
-    overflow: hidden;
     background: black;
-    touch-action: none;
-}
-canvas {
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+  }
+  canvas {
     display: block;
-}
+    margin: 0 auto;
+    background: black;
+  }
 </style>
 </head>
 <body>
 <canvas id="eyeCanvas"></canvas>
+
 <script>
 const canvas = document.getElementById('eyeCanvas');
 const ctx = canvas.getContext('2d');
 
-// キャンバス設定
-const MAX_CANVAS = 2000;
-canvas.width = MAX_CANVAS;
-canvas.height = MAX_CANVAS;
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', resizeCanvas);
+resizeCanvas();
 
-// デフォルト横持ちサイズ
-const DEFAULT_WIDTH = 1920;
-const DEFAULT_HEIGHT = 1080;
+const siro = new Image();
+const kuro = new Image();
+siro.src = "siro.png";
+kuro.src = "kuro.png";
 
-// スケール・オフセット
-let scale = DEFAULT_WIDTH / MAX_CANVAS;
-let offsetX = (canvas.width - DEFAULT_WIDTH)/2;
-let offsetY = (canvas.height - DEFAULT_HEIGHT)/2;
-const MIN_SCALE = DEFAULT_WIDTH / MAX_CANVAS;
-const MAX_SCALE = 1;
-
-// 白目・黒目サイズ
-const whiteRadius = 250; // 500px直径
-const blackRadius = 210; // 420px直径
-
-// 黒目初期位置
-let eyeX = canvas.width/2;
-let eyeY = canvas.height/2;
-let targetX = eyeX;
-let targetY = eyeY;
-
-// 瞬き用
+// ---- 基本パラメータ ----
+const pupilScale = 1.2;
+let pupilX = 0;
+let pupilY = 0;
 let blinkProgress = 0;
-let isBlinking = false;
+let isClosing = true;
+let pupilRangeExtra = 50;
+let reactingToSound = false;
+let silenceTimer = null;
 
-// アニメーション制御
-let animationStart = null;
-let currentAnim = null;
-const animSets = ['A','B','C'];
-
-// タッチ操作用
-let offsetPrevX = 0, offsetPrevY = 0;
-let lastDist = null;
-
-// 緩急関数
-function easeInOutQuad(t) { return t<0.5 ? 2*t*t : -1+(4-2*t)*t; }
-
-// 描画
-function draw() {
-    ctx.save();
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(scale, scale);
-
-    // 半目マスク（上瞼のみ）
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0,0,canvas.width,canvas.height);
-    ctx.moveTo(eyeX - whiteRadius, eyeY - whiteRadius);
-    ctx.arc(eyeX, eyeY, whiteRadius, Math.PI, 0, false);
-    ctx.closePath();
-    ctx.clip();
-
-    // 白目
-    ctx.beginPath();
-    ctx.fillStyle = 'white';
-    ctx.arc(eyeX, eyeY, whiteRadius, 0, 2*Math.PI);
-    ctx.fill();
-
-    // 黒目
-    ctx.beginPath();
-    ctx.fillStyle = 'black';
-    ctx.arc(eyeX + (targetX - eyeX), eyeY + (targetY - eyeY), blackRadius, 0, 2*Math.PI);
-    ctx.fill();
-
-    // 瞬きマスク（上瞼）
-    if(isBlinking){
-        ctx.fillStyle = 'black';
-        ctx.beginPath();
-        ctx.rect(eyeX - whiteRadius, eyeY - whiteRadius, whiteRadius*2, whiteRadius*blinkProgress);
-        ctx.fill();
-    }
-
-    ctx.restore();
-    requestAnimationFrame(draw);
+// ---- 補間関数 ----
+function easeInOutSine(t) {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
-// アニメーション制御
-function animate(anim){
-    currentAnim = anim;
-    animationStart = performance.now();
+// ---- 音声入力 ----
+let audioContext, analyser, dataArray;
+let soundThreshold = 35; // 感度（小さいほど敏感）
 
-    if(anim==='A'){
-        const moveRange = whiteRadius - blackRadius;
-        const duration = 3000;
-
-        function stepA(time){
-            let t = (time - animationStart)/duration;
-            if(t>1) t=1;
-            const eased = easeInOutQuad(t);
-            targetX = eyeX + moveRange * Math.sin(eased * Math.PI * 2);
-            if(t<1) requestAnimationFrame(stepA);
-            else targetX = eyeX;
-        }
-        requestAnimationFrame(stepA);
-    }
-    else if(anim==='B'){
-        targetX = eyeX;
-        targetY = eyeY;
-        setTimeout(()=>{currentAnim=null;},3000);
-    }
-    else if(anim==='C'){
-        isBlinking = true;
-        const duration = 300;
-        const half = duration/2;
-        const startTime = performance.now();
-
-        function blinkStep(time){
-            let t = time - startTime;
-            if(t<half) blinkProgress = t/half;
-            else if(t<duration) blinkProgress = 1-(t-half)/half;
-            else { blinkProgress = 0; isBlinking=false; currentAnim=null; return; }
-            requestAnimationFrame(blinkStep);
-        }
-        requestAnimationFrame(blinkStep);
-    }
-}
-
-// ランダム再生
-setInterval(()=>{
-    if(!currentAnim){
-        const rand = animSets[Math.floor(Math.random()*animSets.length)];
-        animate(rand);
-    }
-},1000);
-
-// タッチ操作
-canvas.addEventListener('touchstart', e=>{
-    if(e.touches.length===1){
-        offsetPrevX = e.touches[0].clientX;
-        offsetPrevY = e.touches[0].clientY;
-    }
-});
-
-canvas.addEventListener('touchmove', e=>{
-    if(e.touches.length===1){
-        const dx = e.touches[0].clientX - offsetPrevX;
-        const dy = e.touches[0].clientY - offsetPrevY;
-        offsetX += dx;
-        offsetY += dy;
-        offsetPrevX = e.touches[0].clientX;
-        offsetPrevY = e.touches[0].clientY;
-    }
-    else if(e.touches.length===2){
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if(lastDist){
-            let newScale = scale * dist/lastDist;
-            scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
-        }
-        lastDist = dist;
-    }
-});
-
-canvas.addEventListener('touchend', e=>{
-    if(e.touches.length<2) lastDist = null;
-});
-
-// 音声反応
-navigator.mediaDevices.getUserMedia({audio:true})
-.then(stream=>{
-    const audioCtx = new AudioContext();
-    const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
+async function initMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
     analyser.fftSize = 256;
-    const data = new Uint8Array(analyser.frequencyBinCount);
+    const bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+    monitorSound();
+  } catch (err) {
+    console.error('マイクアクセスが拒否されました:', err);
+  }
+}
 
-    setInterval(()=>{
-        analyser.getByteFrequencyData(data);
-        let sum = data.reduce((a,b)=>a+b,0)/data.length;
-        if(sum>100){ // 閾値
-            targetY = eyeY + whiteRadius/2;
-            setTimeout(()=>{targetY=eyeY;},3000);
+function monitorSound() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+  const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+  const volume = avg;
+
+  // 音を検知
+  if (volume > soundThreshold && !reactingToSound) {
+    reactingToSound = true;
+    clearTimeout(silenceTimer);
+    interruptAndReact(); // 反応処理
+  }
+
+  // 音がなくなった場合（音量が閾値の60%未満）
+  if (volume < soundThreshold * 0.6 && reactingToSound) {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      reactingToSound = false;
+      moveToCenter(() => {
+        if (!animationRunning) startLoop();
+      });
+    }, 2000); // 🔇静寂後2秒待機
+  }
+
+  requestAnimationFrame(monitorSound);
+}
+
+// ---- 描画処理 ----
+function drawEye() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const siroWidth = siro.width;
+  const siroHeight = siro.height;
+
+  ctx.drawImage(siro, centerX - siroWidth / 2, centerY - siroHeight / 2);
+
+  const kuroW = kuro.width * pupilScale;
+  const kuroH = kuro.height * pupilScale;
+  ctx.drawImage(
+    kuro,
+    centerX + pupilX - kuroW / 2,
+    centerY + pupilY - kuroH / 2,
+    kuroW,
+    kuroH
+  );
+
+  // まぶたマスク
+  const baseHalf = canvas.height / 2.2;
+  const closeMax = canvas.height * 0.95;
+  const eyelidY = baseHalf + (closeMax - baseHalf) * blinkProgress;
+
+  ctx.fillStyle = "black";
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, eyelidY);
+  ctx.quadraticCurveTo(canvas.width / 2, eyelidY + 80, canvas.width, eyelidY);
+  ctx.lineTo(canvas.width, 0);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ---- まばたき ----
+function blink(times = 2, callback) {
+  let count = 0;
+  function close() {
+    if (reactingToSound) return; // 音検知中は停止
+    isClosing = true;
+    animateBlink(() => {
+      isClosing = false;
+      animateBlink(() => {
+        count++;
+        if (count < times) {
+          setTimeout(close, 400);
+        } else {
+          blinkProgress = 0;
+          drawEye();
+          if (callback) callback();
         }
-    },100);
-});
+      });
+    });
+  }
+  close();
+}
 
-draw();
+function animateBlink(onComplete) {
+  const duration = 400;
+  const start = performance.now();
+  function step(time) {
+    const t = Math.min((time - start) / duration, 1);
+    blinkProgress = isClosing ? easeInOutSine(t) : easeInOutSine(1 - t);
+    drawEye();
+    if (t < 1) requestAnimationFrame(step);
+    else if (onComplete) onComplete();
+  }
+  requestAnimationFrame(step);
+}
+
+// ---- 黒目の移動 ----
+function moveEyes(callback) {
+  const siroWidth = siro.width;
+  const range = (siroWidth / 2) + pupilRangeExtra;
+  const duration = 4000;
+  const repeats = 2;
+  let direction = 1;
+  let count = 0;
+
+  function animate(direction, onComplete) {
+    if (reactingToSound) return; // 音中断
+    const startX = pupilX;
+    const endX = direction * range;
+    const startTime = performance.now();
+
+    function step(time) {
+      if (reactingToSound) return; // 音が鳴ったら停止
+      const progress = Math.min((time - startTime) / duration, 1);
+      pupilX = startX + (endX - startX) * easeInOutSine(progress);
+      drawEye();
+
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      } else {
+        setTimeout(() => {
+          count++;
+          if (count < repeats * 2) {
+            animate(-direction, onComplete);
+          } else {
+            moveToCenter(onComplete);
+          }
+        }, 1000);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+  animate(direction, callback);
+}
+
+// ---- 黒目を中央に戻す ----
+function moveToCenter(callback) {
+  const startX = pupilX;
+  const startY = pupilY;
+  const duration = 1500;
+  const startTime = performance.now();
+
+  function step(time) {
+    const progress = Math.min((time - startTime) / duration, 1);
+    pupilX = startX * (1 - easeInOutSine(progress));
+    pupilY = startY * (1 - easeInOutSine(progress));
+    drawEye();
+    if (progress < 1) requestAnimationFrame(step);
+    else if (callback) callback();
+  }
+  requestAnimationFrame(step);
+}
+
+// ---- 音声反応（下を見る） ----
+function interruptAndReact() {
+  animationRunning = false;
+  const startY = pupilY;
+  const endY = kuro.height * 0.3; // 下方向へ少し移動
+  const duration = 600;
+  const startTime = performance.now();
+
+  function step(time) {
+    if (!reactingToSound) return;
+    const progress = Math.min((time - startTime) / duration, 1);
+    pupilY = startY + (endY - startY) * easeInOutSine(progress);
+    drawEye();
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ---- パターン ----
+function playPatternB(onComplete) {
+  blink(2, () => moveEyes(() => moveToCenter(() => setTimeout(onComplete, 3000))));
+}
+function playPatternC(onComplete) {
+  blink(2, () => {
+    drawEye();
+    setTimeout(onComplete, 3000);
+  });
+}
+
+// ---- ループ ----
+let animationRunning = false;
+function startLoop() {
+  if (animationRunning) return;
+  animationRunning = true;
+
+  drawEye();
+  const next = Math.random() < 0.5 ? playPatternB : playPatternC;
+  next(() => {
+    animationRunning = false;
+    setTimeout(() => {
+      if (!reactingToSound) startLoop();
+    }, 1000);
+  });
+}
+
+// ---- 初期起動 ----
+siro.onload = () => {
+  drawEye();
+  initMic();
+  startLoop();
+};
 </script>
 </body>
 </html>
