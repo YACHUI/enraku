@@ -175,7 +175,7 @@ function animateBlink() {
 // ---- 黒目左右移動 ----
 function moveEyes() {
   return new Promise(resolve=>{
-    const range = ((siro.width/2)+pupilRangeExtra) * 0.8; // 左右移動80%に縮小
+    const range = ((siro.width/2)+pupilRangeExtra) * 0.7; // 左右移動70%に縮小
     const duration=4000;
     const repeats=2;
     let count=0;
@@ -272,3 +272,4 @@ siro.onload = ()=>{
 </script>
 </body>
 </html>
+
