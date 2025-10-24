@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Eye Animation 横持ち半目キョロキョロ（スライド対応）</title>
+<title>Eye Animation 横持ち半目キョロキョロ（音声連続反応対応）</title>
 <style>
   html, body {
     margin: 0;
@@ -45,9 +45,7 @@ let pupilY = 0;
 let blinkProgress = 0;
 let isClosing = true;
 const pupilRangeExtra = 150;
-let reactingToSound = false;
 let animationRunning = false;
-let returnTimer = null;
 let halfClosed = 36; // 半目高さ初期値
 
 // ---- 補間関数 ----
@@ -93,14 +91,14 @@ canvas.addEventListener('touchend', e => {
 let lastTouchX = null;
 let lastTouchY = null;
 canvas.addEventListener('touchstart', e => {
-  if(e.touches.length === 1){
+  if (e.touches.length === 1){
     lastTouchX = e.touches[0].clientX;
     lastTouchY = e.touches[0].clientY;
   }
 }, { passive: false });
 
 canvas.addEventListener('touchmove', e => {
-  if(e.touches.length === 1 && lastTouchX !== null && lastTouchY !== null){
+  if (e.touches.length === 1 && lastTouchX !== null && lastTouchY !== null){
     e.preventDefault();
     const dx = e.touches[0].clientX - lastTouchX;
     const dy = e.touches[0].clientY - lastTouchY;
@@ -179,7 +177,6 @@ function animateBlink() {
     const duration=400;
     const start=performance.now();
     function step(time){
-      if(reactingToSound) return resolve();
       const t = Math.min((time-start)/duration, 1);
       blinkProgress = isClosing ? easeInOutSine(t) : easeInOutSine(1-t);
       drawEye();
@@ -205,7 +202,6 @@ function moveEyes() {
       const startTime=performance.now();
 
       function step(time){
-        if(reactingToSound) return resolve();
         const progress=Math.min((time-startTime)/duration,1);
         pupilX = startX + (endX-startX)*easeInOutSine(progress);
         drawEye();
@@ -251,7 +247,7 @@ function interruptAndReact(){
     const progress = Math.min((time-startTime)/duration,1);
     pupilY = startY + (endY-startY)*easeInOutSine(progress);
     drawEye();
-    if(progress < 1 && reactingToSound) requestAnimationFrame(step);
+    if(progress < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
 }
@@ -270,7 +266,7 @@ async function playPatternC(){
 
 // ---- アニメーションループ ----
 async function startLoop(){
-  if(animationRunning || reactingToSound) return;
+  if(animationRunning) return;
   animationRunning=true;
   drawEye();
 
@@ -278,10 +274,10 @@ async function startLoop(){
   await next();
 
   animationRunning=false;
-  if(!reactingToSound) setTimeout(startLoop,1000);
+  setTimeout(startLoop,1000);
 }
 
-// ---- 音声入力 ----
+// ---- 音声入力（何度でも反応） ----
 let audioContext, analyser, dataArray;
 let soundThreshold = 35;
 
@@ -290,3 +286,35 @@ async function initMic() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioContext.createAnalyser();
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    monitorSound();
+  } catch (err) { console.error('マイクアクセス拒否:', err); }
+}
+
+function monitorSound() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+  const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
+
+  if (avg > soundThreshold) {
+    // 何度でも反応
+    interruptAndReact();
+  }
+
+  requestAnimationFrame(monitorSound);
+}
+
+// ---- 初期起動 ----
+siro.onload = ()=>{
+  resizeCanvas();
+  scale = baseScale;
+  drawEye();
+  initMic();
+  startLoop();
+};
+</script>
+</body>
+</html>
