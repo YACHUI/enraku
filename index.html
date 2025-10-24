@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-<title>Eye Animation ver.12（スマホ回転+ピンチ対応）</title>
+<title>Eye Animation ver.13（スマホ幅基準+ピンチ対応）</title>
 <style>
   html, body {
     margin: 0;
@@ -17,7 +17,7 @@
     margin: 0 auto;
     background: black;
     transform-origin: center center;
-    touch-action: none; /* タッチ操作制御 */
+    touch-action: none; /* タッチ操作を制御 */
   }
 </style>
 </head>
@@ -28,10 +28,17 @@
 const canvas = document.getElementById('eyeCanvas');
 const ctx = canvas.getContext('2d');
 
+let screenWidth = window.innerWidth;
+let screenHeight = window.innerHeight;
+let scale = 1; // ピンチ拡大縮小用
+
 function resizeCanvas() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  screenWidth = window.innerWidth;
+  screenHeight = window.innerHeight;
+  canvas.width = screenWidth;
+  canvas.height = screenHeight;
   adjustOrientation();
+  drawEye();
 }
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', resizeCanvas);
@@ -44,15 +51,14 @@ kuro.src = "kuro.png";
 
 // ---- 基本パラメータ ----
 const pupilScale = 1.2;
-let pupilX = 0;
-let pupilY = 0;
+let pupilX = 0; // 黒目左右移動
+let pupilY = 0; // 黒目上下移動
 let blinkProgress = 0;
 let isClosing = true;
 const pupilRangeExtra = 150;
 let reactingToSound = false;
 let animationRunning = false;
 let returnTimer = null;
-let scale = 1; // ピンチ拡大縮小用
 
 // ---- 補間関数 ----
 function easeInOutSine(t) { return -(Math.cos(Math.PI*t)-1)/2; }
@@ -65,7 +71,7 @@ function adjustOrientation() {
   } else if(window.orientation !== undefined){
     angle = window.orientation;
   }
-  canvas.style.transform = `rotate(${-angle}deg)`;
+  canvas.style.transform = `rotate(${-angle}deg) scale(${scale})`;
 }
 
 // ---- 音声入力 ----
@@ -126,7 +132,7 @@ canvas.addEventListener('touchmove', e => {
       scale *= factor;
       if(scale < 0.5) scale = 0.5;
       if(scale > 3) scale = 3;
-      drawEye();
+      adjustOrientation();
     }
     lastDistance = distance;
   }
@@ -135,32 +141,32 @@ canvas.addEventListener('touchend', e => { if(e.touches.length < 2) lastDistance
 
 // ---- 描画 ----
 function drawEye() {
-  ctx.save();
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.translate(canvas.width/2, canvas.height/2);
-  ctx.scale(scale, scale);
-  ctx.translate(-canvas.width/2, -canvas.height/2);
+  const centerX = screenWidth/2;
+  const centerY = screenHeight/2;
 
-  const centerX = canvas.width/2;
-  const centerY = canvas.height/2;
-  ctx.drawImage(siro, centerX-siro.width/2, centerY-siro.height/2);
-  const kuroW = kuro.width * pupilScale;
-  const kuroH = kuro.height * pupilScale;
-  ctx.drawImage(kuro, centerX+pupilX - kuroW/2, centerY+pupilY - kuroH/2, kuroW, kuroH);
+  // 白目描画
+  const siroW = screenWidth * 0.5; // 画面幅50%でスケーリング
+  const siroH = siroW * (siro.height / siro.width);
+  ctx.drawImage(siro, centerX-siroW/2, centerY-siroH/2, siroW, siroH);
 
-  const baseHalf = canvas.height/2.2;
-  const closeMax = canvas.height*0.95;
+  // 黒目描画
+  const kuroW = siroW * 0.2 * pupilScale;
+  const kuroH = kuroW * (kuro.height/kuro.width);
+  ctx.drawImage(kuro, centerX + pupilX - kuroW/2, centerY + pupilY - kuroH/2, kuroW, kuroH);
+
+  // まぶた描画
+  const baseHalf = screenHeight/2.2;
+  const closeMax = screenHeight*0.95;
   const eyelidY = baseHalf + (closeMax-baseHalf)*blinkProgress;
   ctx.fillStyle="black";
   ctx.beginPath();
   ctx.moveTo(0,0);
   ctx.lineTo(0,eyelidY);
-  ctx.quadraticCurveTo(canvas.width/2, eyelidY+80, canvas.width, eyelidY);
-  ctx.lineTo(canvas.width,0);
+  ctx.quadraticCurveTo(screenWidth/2, eyelidY+80, screenWidth, eyelidY);
+  ctx.lineTo(screenWidth,0);
   ctx.closePath();
   ctx.fill();
-
-  ctx.restore();
 }
 
 // ---- アニメーション関数 ----
@@ -201,7 +207,7 @@ function animateBlink() {
 // ---- 黒目左右移動 ----
 function moveEyes() {
   return new Promise(resolve=>{
-    const range = ((siro.width/2)+pupilRangeExtra) * 0.8;
+    const range = ((screenWidth*0.5/2)+pupilRangeExtra) * 0.8; // 画面幅基準で80%移動
     const duration=4000;
     const repeats=2;
     let count=0;
@@ -250,51 +256,3 @@ function moveToCenter(callback){
 }
 
 function interruptAndReact(){
-  const startY = pupilY;
-  const endY = kuro.height * 0.3;
-  const duration = 600;
-  const startTime = performance.now();
-
-  function step(time){
-    const progress = Math.min((time-startTime)/duration,1);
-    pupilY = startY + (endY-startY)*easeInOutSine(progress);
-    drawEye();
-    if(progress < 1 && reactingToSound) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
-
-// ---- アニメーションパターン ----
-async function playPatternB(){ 
-  await blink(1); 
-  await moveEyes(); 
-  await new Promise(r=>setTimeout(r,3000));
-}
-async function playPatternC(){ 
-  await blink(1); 
-  drawEye();
-  await new Promise(r=>setTimeout(r,3000));
-}
-
-// ---- アニメーションループ ----
-async function startLoop(){
-  if(animationRunning || reactingToSound) return;
-  animationRunning=true;
-  drawEye();
-
-  const next = Math.random() < 0.5 ? playPatternB : playPatternC;
-  await next();
-
-  animationRunning=false;
-  if(!reactingToSound) setTimeout(startLoop,1000);
-}
-
-// ---- 初期起動 ----
-siro.onload = ()=>{
-  drawEye();
-  initMic();
-  startLoop();
-};
-</script>
-</body>
-</html>
