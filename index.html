@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Eye Animation 横持ち対応（修正版）</title>
+<title>Eye Animation 横持ちフィット対応</title>
 <style>
   html, body {
     margin: 0;
@@ -27,6 +27,7 @@ const canvas = document.getElementById('eyeCanvas');
 const ctx = canvas.getContext('2d');
 
 let scale = 1;
+let baseScale = 1; // 自動フィット用の基準スケール
 
 // ---- 画像読み込み ----
 const siro = new Image();
@@ -48,10 +49,17 @@ let returnTimer = null;
 // ---- 補間関数 ----
 function easeInOutSine(t) { return -(Math.cos(Math.PI*t)-1)/2; }
 
-// ---- canvasリサイズ ----
+// ---- canvasリサイズ + 自動フィット ----
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+
+  if(siro.complete){
+    // 横持ち画面に収まるスケール計算
+    const scaleX = canvas.width / siro.height; // 回転しているので height を横幅基準に
+    const scaleY = canvas.height / siro.width; // 回転しているので width を縦幅基準に
+    baseScale = Math.min(scaleX, scaleY);
+  }
 }
 window.addEventListener('resize', resizeCanvas);
 window.addEventListener('orientationchange', resizeCanvas);
@@ -67,7 +75,7 @@ canvas.addEventListener('touchmove', e => {
     const dist = Math.sqrt(dx*dx + dy*dy);
     if(lastDist){
       scale *= dist / lastDist;
-      scale = Math.max(0.5, Math.min(2, scale));
+      scale = Math.max(0.5*baseScale, Math.min(2*baseScale, scale));
     }
     lastDist = dist;
   }
@@ -99,9 +107,9 @@ function drawEye() {
   const kuroH = kuro.height * pupilScale;
   ctx.drawImage(kuro, pupilX - kuroW/2, pupilY - kuroH/2, kuroW, kuroH);
 
-  // まぶた（白目画像サイズ基準）
+  // まぶた
   const halfEyeH = siro.height / 2;
-  const closeMax = halfEyeH * 1.9; // 最大閉じ
+  const closeMax = halfEyeH * 1.9;
   const eyelidY = halfEyeH + (closeMax - halfEyeH) * blinkProgress;
 
   ctx.fillStyle = "black";
@@ -288,6 +296,8 @@ function monitorSound() {
 
 // ---- 初期起動 ----
 siro.onload = ()=>{
+  resizeCanvas(); // 初回フィット
+  scale = baseScale;
   drawEye();
   initMic();
   startLoop();
