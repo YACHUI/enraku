@@ -2,105 +2,212 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>半目テスト</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>半目キョロキョロアニメ</title>
 <style>
-  html, body {
+html, body {
     margin: 0;
     padding: 0;
-    background: black;
     overflow: hidden;
-  }
-  canvas {
+    background: black;
+    touch-action: none;
+}
+canvas {
     display: block;
-  }
+}
 </style>
 </head>
 <body>
-<canvas id="eyeCanvas" width="1920" height="1080"></canvas>
+<canvas id="eyeCanvas"></canvas>
 <script>
-const canvas = document.getElementById("eyeCanvas");
-const ctx = canvas.getContext("2d");
-canvas.width = 1920;
-canvas.height = 1080;
+const canvas = document.getElementById('eyeCanvas');
+const ctx = canvas.getContext('2d');
 
-let eye = {
-  x: 960,
-  y: 540,
-  baseY: 540,
-  radius: 80,
-  blink: 0,
-  mode: "idle"
-};
+// キャンバス設定
+const MAX_CANVAS = 2000;
+canvas.width = MAX_CANVAS;
+canvas.height = MAX_CANVAS;
 
+// デフォルト横持ちサイズ
+const DEFAULT_WIDTH = 1920;
+const DEFAULT_HEIGHT = 1080;
+
+// スケール・オフセット
+let scale = DEFAULT_WIDTH / MAX_CANVAS;
+let offsetX = (canvas.width - DEFAULT_WIDTH)/2;
+let offsetY = (canvas.height - DEFAULT_HEIGHT)/2;
+const MIN_SCALE = DEFAULT_WIDTH / MAX_CANVAS;
+const MAX_SCALE = 1;
+
+// 白目・黒目サイズ
+const whiteRadius = 250; // 500px直径
+const blackRadius = 210; // 420px直径
+
+// 黒目初期位置
+let eyeX = canvas.width/2;
+let eyeY = canvas.height/2;
+let targetX = eyeX;
+let targetY = eyeY;
+
+// 瞬き用
+let blinkProgress = 0;
+let isBlinking = false;
+
+// アニメーション制御
+let animationStart = null;
+let currentAnim = null;
+const animSets = ['A','B','C'];
+
+// タッチ操作用
+let offsetPrevX = 0, offsetPrevY = 0;
+let lastDist = null;
+
+// 緩急関数
+function easeInOutQuad(t) { return t<0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+// 描画
 function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  // 白目（灰色の円）
-  ctx.fillStyle = "#ddd";
-  ctx.beginPath();
-  ctx.arc(960, 540, 250, 0, Math.PI * 2);
-  ctx.fill();
+    ctx.save();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
 
-  // 半目マスク
-  const maskHeight = 500 * (0.5 + 0.5 * (1 - eye.blink));
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(960 - 250, 540 - maskHeight / 2, 500, maskHeight);
-  ctx.clip();
+    // 半目マスク（上瞼のみ）
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0,0,canvas.width,canvas.height);
+    ctx.moveTo(eyeX - whiteRadius, eyeY - whiteRadius);
+    ctx.arc(eyeX, eyeY, whiteRadius, Math.PI, 0, false);
+    ctx.closePath();
+    ctx.clip();
 
-  // 黒目
-  ctx.fillStyle = "black";
-  ctx.beginPath();
-  ctx.arc(eye.x, eye.y, eye.radius, 0, Math.PI * 2);
-  ctx.fill();
+    // 白目
+    ctx.beginPath();
+    ctx.fillStyle = 'white';
+    ctx.arc(eyeX, eyeY, whiteRadius, 0, 2*Math.PI);
+    ctx.fill();
 
-  ctx.restore();
+    // 黒目
+    ctx.beginPath();
+    ctx.fillStyle = 'black';
+    ctx.arc(eyeX + (targetX - eyeX), eyeY + (targetY - eyeY), blackRadius, 0, 2*Math.PI);
+    ctx.fill();
+
+    // 瞬きマスク（上瞼）
+    if(isBlinking){
+        ctx.fillStyle = 'black';
+        ctx.beginPath();
+        ctx.rect(eyeX - whiteRadius, eyeY - whiteRadius, whiteRadius*2, whiteRadius*blinkProgress);
+        ctx.fill();
+    }
+
+    ctx.restore();
+    requestAnimationFrame(draw);
 }
 
-// --- Aセット ---
-function animateSetA() {
-  const start = performance.now();
-  const duration = 3000;
-  const moveRange = 150;
-  function frame(now) {
-    const t = (now - start) / duration;
-    if (t > 1) { eye.x = 960; eye.mode = "idle"; return; }
-    const angle = Math.sin(t * Math.PI * 4);
-    eye.x = 960 + angle * moveRange;
-    draw();
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+// アニメーション制御
+function animate(anim){
+    currentAnim = anim;
+    animationStart = performance.now();
+
+    if(anim==='A'){
+        const moveRange = whiteRadius - blackRadius;
+        const duration = 3000;
+
+        function stepA(time){
+            let t = (time - animationStart)/duration;
+            if(t>1) t=1;
+            const eased = easeInOutQuad(t);
+            targetX = eyeX + moveRange * Math.sin(eased * Math.PI * 2);
+            if(t<1) requestAnimationFrame(stepA);
+            else targetX = eyeX;
+        }
+        requestAnimationFrame(stepA);
+    }
+    else if(anim==='B'){
+        targetX = eyeX;
+        targetY = eyeY;
+        setTimeout(()=>{currentAnim=null;},3000);
+    }
+    else if(anim==='C'){
+        isBlinking = true;
+        const duration = 300;
+        const half = duration/2;
+        const startTime = performance.now();
+
+        function blinkStep(time){
+            let t = time - startTime;
+            if(t<half) blinkProgress = t/half;
+            else if(t<duration) blinkProgress = 1-(t-half)/half;
+            else { blinkProgress = 0; isBlinking=false; currentAnim=null; return; }
+            requestAnimationFrame(blinkStep);
+        }
+        requestAnimationFrame(blinkStep);
+    }
 }
 
-// --- 瞬き ---
-function animateSetC() {
-  const start = performance.now();
-  const duration = 400;
-  function frame(now) {
-    const t = (now - start) / duration;
-    if (t > 1) { eye.blink = 0; eye.mode = "idle"; return; }
-    eye.blink = Math.sin(t * Math.PI);
-    draw();
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
-}
+// ランダム再生
+setInterval(()=>{
+    if(!currentAnim){
+        const rand = animSets[Math.floor(Math.random()*animSets.length)];
+        animate(rand);
+    }
+},1000);
 
-// --- ループ ---
-function loop() {
-  if (eye.mode === "idle") {
-    const r = Math.random();
-    if (r < 0.6) { eye.mode = "A"; animateSetA(); }
-    else { eye.mode = "C"; animateSetC(); }
-  }
-  draw();
-  requestAnimationFrame(loop);
-}
+// タッチ操作
+canvas.addEventListener('touchstart', e=>{
+    if(e.touches.length===1){
+        offsetPrevX = e.touches[0].clientX;
+        offsetPrevY = e.touches[0].clientY;
+    }
+});
+
+canvas.addEventListener('touchmove', e=>{
+    if(e.touches.length===1){
+        const dx = e.touches[0].clientX - offsetPrevX;
+        const dy = e.touches[0].clientY - offsetPrevY;
+        offsetX += dx;
+        offsetY += dy;
+        offsetPrevX = e.touches[0].clientX;
+        offsetPrevY = e.touches[0].clientY;
+    }
+    else if(e.touches.length===2){
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if(lastDist){
+            let newScale = scale * dist/lastDist;
+            scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+        }
+        lastDist = dist;
+    }
+});
+
+canvas.addEventListener('touchend', e=>{
+    if(e.touches.length<2) lastDist = null;
+});
+
+// 音声反応
+navigator.mediaDevices.getUserMedia({audio:true})
+.then(stream=>{
+    const audioCtx = new AudioContext();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+
+    setInterval(()=>{
+        analyser.getByteFrequencyData(data);
+        let sum = data.reduce((a,b)=>a+b,0)/data.length;
+        if(sum>100){ // 閾値
+            targetY = eyeY + whiteRadius/2;
+            setTimeout(()=>{targetY=eyeY;},3000);
+        }
+    },100);
+});
 
 draw();
-loop();
 </script>
 </body>
 </html>
