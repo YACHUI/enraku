@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Eye Animation 横持ちフィット対応</title>
+<title>Eye Animation 横持ち半目キョロキョロ</title>
 <style>
   html, body {
     margin: 0;
@@ -27,7 +27,7 @@ const canvas = document.getElementById('eyeCanvas');
 const ctx = canvas.getContext('2d');
 
 let scale = 1;
-let baseScale = 1; // 自動フィット用の基準スケール
+let baseScale = 1;
 
 // ---- 画像読み込み ----
 const siro = new Image();
@@ -55,9 +55,8 @@ function resizeCanvas() {
   canvas.height = window.innerHeight;
 
   if(siro.complete){
-    // 横持ち画面に収まるスケール計算
-    const scaleX = canvas.width / siro.height; // 回転しているので height を横幅基準に
-    const scaleY = canvas.height / siro.width; // 回転しているので width を縦幅基準に
+    const scaleX = canvas.width / siro.width;
+    const scaleY = canvas.height / siro.height;
     baseScale = Math.min(scaleX, scaleY);
   }
 }
@@ -91,13 +90,12 @@ function drawEye() {
   ctx.save();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // 回転 + スケール
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(-Math.PI/2); // 90度回転
-  ctx.scale(scale, scale);
+  // 中心座標 + scale
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
 
-  const centerX = 0;
-  const centerY = 0;
+  ctx.translate(centerX, centerY);
+  ctx.scale(scale, scale);
 
   // 白目
   ctx.drawImage(siro, -siro.width/2, -siro.height/2);
@@ -107,16 +105,16 @@ function drawEye() {
   const kuroH = kuro.height * pupilScale;
   ctx.drawImage(kuro, pupilX - kuroW/2, pupilY - kuroH/2, kuroW, kuroH);
 
-  // まぶた
+  // まぶた（半目）
   const halfEyeH = siro.height / 2;
-  const closeMax = halfEyeH * 1.9;
-  const eyelidY = halfEyeH + (closeMax - halfEyeH) * blinkProgress;
+  const halfClosed = halfEyeH * 0.6; // 半目閉じ
+  const eyelidY = halfClosed + (halfEyeH - halfClosed) * blinkProgress;
 
   ctx.fillStyle = "black";
   ctx.beginPath();
   ctx.moveTo(-siro.width/2, -halfEyeH);
-  ctx.lineTo(-siro.width/2, eyelidY - halfEyeH);
-  ctx.quadraticCurveTo(0, eyelidY - halfEyeH + 80, siro.width/2, eyelidY - halfEyeH);
+  ctx.lineTo(-siro.width/2, -halfEyeH + eyelidY);
+  ctx.quadraticCurveTo(0, -halfEyeH + eyelidY + 20, siro.width/2, -halfEyeH + eyelidY);
   ctx.lineTo(siro.width/2, -halfEyeH);
   ctx.closePath();
   ctx.fill();
@@ -159,10 +157,10 @@ function animateBlink() {
   });
 }
 
-// ---- 黒目移動 ----
+// ---- 黒目左右キョロキョロ ----
 function moveEyes() {
   return new Promise(resolve=>{
-    const range = ((siro.width/2)+pupilRangeExtra) * 0.7;
+    const range = ((siro.width/2)+pupilRangeExtra) * 0.5; // 横移動範囲
     const duration=4000;
     const repeats=2;
     let count=0;
@@ -296,7 +294,7 @@ function monitorSound() {
 
 // ---- 初期起動 ----
 siro.onload = ()=>{
-  resizeCanvas(); // 初回フィット
+  resizeCanvas();
   scale = baseScale;
   drawEye();
   initMic();
