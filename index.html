@@ -3,92 +3,84 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>半目キョロキョロ</title>
+<title>半目テスト</title>
 <style>
   html, body {
     margin: 0;
     padding: 0;
-    background-color: black;
+    background: black;
     overflow: hidden;
   }
   canvas {
     display: block;
-    margin: 0 auto;
-    background-color: black;
   }
 </style>
 </head>
 <body>
-
 <canvas id="eyeCanvas" width="1920" height="1080"></canvas>
-
 <script>
-const canvas = document.getElementById('eyeCanvas');
-const ctx = canvas.getContext('2d');
+const canvas = document.getElementById("eyeCanvas");
+const ctx = canvas.getContext("2d");
 canvas.width = 1920;
 canvas.height = 1080;
 
-const siro = new Image();
-const kuro = new Image();
-siro.src = 'siro.png';
-kuro.src = 'kuro.png';
-
-let siroReady = false;
-let kuroReady = false;
-
 let eye = {
-  x: canvas.width / 2,
-  y: canvas.height / 2,
-  baseY: canvas.height / 2,
-  radius: 120, // 黒目半径
-  angle: 0,
-  blink: 0, // 0:開 1:閉
+  x: 960,
+  y: 540,
+  baseY: 540,
+  radius: 80,
+  blink: 0,
   mode: "idle"
 };
 
-// === アニメーションセット ===
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // 白目（灰色の円）
+  ctx.fillStyle = "#ddd";
+  ctx.beginPath();
+  ctx.arc(960, 540, 250, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 半目マスク
+  const maskHeight = 500 * (0.5 + 0.5 * (1 - eye.blink));
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(960 - 250, 540 - maskHeight / 2, 500, maskHeight);
+  ctx.clip();
+
+  // 黒目
+  ctx.fillStyle = "black";
+  ctx.beginPath();
+  ctx.arc(eye.x, eye.y, eye.radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// --- Aセット ---
 function animateSetA() {
-  // 左右に2度キョロキョロして正面に戻る
   const start = performance.now();
   const duration = 3000;
-  const moveRange = 160; // 移動範囲（白目ギリはみ出すくらい）
-
+  const moveRange = 150;
   function frame(now) {
     const t = (now - start) / duration;
-    if (t > 1) {
-      eye.x = canvas.width / 2;
-      eye.mode = "idle";
-      return;
-    }
-
-    // 2往復 (sin波で滑らかに)
+    if (t > 1) { eye.x = 960; eye.mode = "idle"; return; }
     const angle = Math.sin(t * Math.PI * 4);
-    eye.x = canvas.width / 2 + angle * moveRange;
+    eye.x = 960 + angle * moveRange;
     draw();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }
 
-function animateSetB() {
-  // 中央固定3秒
-  eye.x = canvas.width / 2;
-  draw();
-  setTimeout(() => { eye.mode = "idle"; }, 3000);
-}
-
+// --- 瞬き ---
 function animateSetC() {
-  // 瞬き
   const start = performance.now();
-  const duration = 400; // 開閉時間
+  const duration = 400;
   function frame(now) {
     const t = (now - start) / duration;
-    if (t > 1) {
-      eye.blink = 0;
-      eye.mode = "idle";
-      return;
-    }
-    // 0→1→0 に変化
+    if (t > 1) { eye.blink = 0; eye.mode = "idle"; return; }
     eye.blink = Math.sin(t * Math.PI);
     draw();
     requestAnimationFrame(frame);
@@ -96,112 +88,19 @@ function animateSetC() {
   requestAnimationFrame(frame);
 }
 
-// === 音声反応 ===
-function setupVoiceReaction() {
-  if (!('webkitSpeechRecognition' in window)) {
-    console.warn("音声認識はこのブラウザでサポートされていません");
-    return;
-  }
-  const recog = new webkitSpeechRecognition();
-  recog.continuous = true;
-  recog.interimResults = false;
-  recog.lang = 'ja-JP';
-  recog.start();
-
-  recog.onresult = (e) => {
-    // 何か声を検出したら下を向く
-    if (eye.mode === "idle") voiceReaction();
-  };
-}
-
-function voiceReaction() {
-  eye.mode = "voice";
-  const startY = eye.baseY;
-  const endY = startY + 80;
-  const duration = 3000;
-
-  const start = performance.now();
-  function frame(now) {
-    const t = (now - start) / duration;
-    if (t < 1) {
-      eye.y = startY + (endY - startY) * easeOutCubic(t);
-      draw();
-      requestAnimationFrame(frame);
-    } else {
-      // 戻る
-      const backStart = performance.now();
-      function backFrame(now2) {
-        const tt = (now2 - backStart) / 1000;
-        if (tt < 1) {
-          eye.y = endY - (endY - startY) * easeOutCubic(tt);
-          draw();
-          requestAnimationFrame(backFrame);
-        } else {
-          eye.y = startY;
-          eye.mode = "idle";
-        }
-      }
-      requestAnimationFrame(backFrame);
-    }
-  }
-  requestAnimationFrame(frame);
-}
-
-// === 補助関数 ===
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-// === 描画関数 ===
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!siroReady || !kuroReady) return;
-
-  // 半目マスクを適用
-  const maskHeight = siro.height * (0.5 + 0.5 * (1 - eye.blink));
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(canvas.width / 2 - siro.width / 2, canvas.height / 2 - maskHeight / 2, siro.width, maskHeight);
-  ctx.clip();
-
-  // 白目
-  ctx.drawImage(siro, canvas.width / 2 - siro.width / 2, canvas.height / 2 - siro.height / 2);
-
-  // 黒目
-  ctx.drawImage(kuro, eye.x - kuro.width / 2, eye.y - kuro.height / 2);
-
-  ctx.restore();
-}
-
-// === メインループ ===
+// --- ループ ---
 function loop() {
   if (eye.mode === "idle") {
     const r = Math.random();
-    if (r < 0.4) {
-      eye.mode = "A"; animateSetA();
-    } else if (r < 0.8) {
-      eye.mode = "B"; animateSetB();
-    } else {
-      eye.mode = "C"; animateSetC();
-    }
+    if (r < 0.6) { eye.mode = "A"; animateSetA(); }
+    else { eye.mode = "C"; animateSetC(); }
   }
   draw();
   requestAnimationFrame(loop);
 }
 
-// === 画像ロード ===
-siro.onload = () => { siroReady = true; };
-kuro.onload = () => { kuroReady = true; };
-
-// === 開始 ===
-Promise.all([
-  new Promise(res => siro.onload = res),
-  new Promise(res => kuro.onload = res)
-]).then(() => {
-  draw();
-  loop();
-  setupVoiceReaction();
-});
+draw();
+loop();
 </script>
 </body>
 </html>
