@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Eye Animation 横持ちマスク対応</title>
+<title>Eye Animation 横持ち対応</title>
 <style>
   html, body {
     margin: 0;
@@ -26,42 +26,15 @@
 const canvas = document.getElementById('eyeCanvas');
 const ctx = canvas.getContext('2d');
 
-// ---------------- Canvas サイズ調整 ----------------
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  let w = window.innerWidth;
-  let h = window.innerHeight;
+let scale = 1;
 
-  // 横持ち固定
-  if (w < h) [w, h] = [h, w];
+// ---- 画像読み込み ----
+const siro = new Image();
+const kuro = new Image();
+siro.src = "siro.png";
+kuro.src = "kuro.png";
 
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  canvas.style.width = w + "px";
-  canvas.style.height = h + "px";
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.scale(dpr,dpr);
-}
-window.addEventListener('resize', resizeCanvas);
-window.addEventListener('orientationchange', resizeCanvas);
-resizeCanvas();
-
-// ---------------- 画像ロード ----------------
-function loadImages(sources, callback) {
-  let loaded = 0;
-  const imgs = {};
-  for (let key in sources) {
-    imgs[key] = new Image();
-    imgs[key].src = sources[key];
-    imgs[key].onload = () => {
-      loaded++;
-      if (loaded === Object.keys(sources).length) callback(imgs);
-    };
-  }
-}
-let siro, kuro;
-
-// ---------------- パラメータ ----------------
+// ---- 基本パラメータ ----
 const pupilScale = 1.2;
 let pupilX = 0;
 let pupilY = 0;
@@ -72,98 +45,77 @@ let reactingToSound = false;
 let animationRunning = false;
 let returnTimer = null;
 
-// 補間関数
+// ---- 補間関数 ----
 function easeInOutSine(t) { return -(Math.cos(Math.PI*t)-1)/2; }
 
-// ---------------- 音声入力 ----------------
-let audioContext, analyser, dataArray;
-let soundThreshold = 35;
-
-async function initMic() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioContext.createAnalyser();
-    const source = audioContext.createMediaStreamSource(stream);
-    source.connect(analyser);
-    analyser.fftSize = 256;
-    dataArray = new Uint8Array(analyser.frequencyBinCount);
-    monitorSound();
-  } catch (err) { console.error('マイクアクセス拒否:', err); }
+// ---- canvasリサイズ ----
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 }
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', resizeCanvas);
+resizeCanvas();
 
-function monitorSound() {
-  if (!analyser) return;
-  analyser.getByteFrequencyData(dataArray);
-  const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
-
-  if (avg > soundThreshold && !reactingToSound) {
-    reactingToSound = true;
-    if (returnTimer) { clearTimeout(returnTimer); returnTimer=null; }
-    animationRunning = false;
-    interruptAndReact();
-  }
-
-  if (avg < soundThreshold*0.6 && reactingToSound) {
-    if (!returnTimer) {
-      returnTimer = setTimeout(()=>{
-        moveToCenter(()=>{ reactingToSound=false; startLoop(); });
-        returnTimer=null;
-      }, 3000);
+// ---- ピンチで拡縮 ----
+let lastDist = null;
+canvas.addEventListener('touchmove', e => {
+  if(e.touches.length === 2){
+    e.preventDefault();
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if(lastDist){
+      scale *= dist / lastDist;
+      scale = Math.max(0.5, Math.min(2, scale));
     }
+    lastDist = dist;
   }
+}, { passive: false });
 
-  requestAnimationFrame(monitorSound);
-}
+canvas.addEventListener('touchend', e => {
+  if(e.touches.length < 2) lastDist = null;
+});
 
-// ---------------- 描画 ----------------
+// ---- 描画 ----
 function drawEye() {
+  ctx.save();
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  const centerX = canvas.width/2;
-  const centerY = canvas.height/2;
+  // 回転90度 + スケール
+  ctx.translate(canvas.width/2, canvas.height/2);
+  ctx.rotate(-Math.PI/2); // 90度回転
+  ctx.scale(scale, scale);
 
-  // 縦持ちなら注意メッセージ
-  if (window.innerWidth < window.innerHeight) {
-    ctx.fillStyle = "black";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = "white";
-    ctx.font = "20px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("Please rotate your device", canvas.width/2, canvas.height/2);
-    return;
-  }
-
-  ctx.save();
-  ctx.translate(centerX, centerY);
-  ctx.rotate(-Math.PI/2); // 90度回転（反時計回り）
+  const centerX = 0;
+  const centerY = 0;
 
   // 白目
-  ctx.drawImage(siro, -siro.width/2, -siro.height/2);
+  ctx.drawImage(siro, centerX-siro.width/2, centerY-siro.height/2);
 
   // 黒目
   const kuroW = kuro.width * pupilScale;
   const kuroH = kuro.height * pupilScale;
-  ctx.drawImage(kuro, pupilX - kuroW/2, pupilY - kuroH/2, kuroW, kuroH);
+  ctx.drawImage(kuro, centerX+pupilX - kuroW/2, centerY+pupilY - kuroH/2, kuroW, kuroH);
 
-  // まぶた（マスク範囲再調整）
-  const baseHalf = canvas.width / 2.2;       // 横持ちに合わせて width 基準
-  const closeMax = canvas.width * 0.9;       // 閉じる最大値も width 基準
-  const eyelidY = baseHalf + (closeMax - baseHalf) * blinkProgress;
+  // まぶた
+  const baseHalf = 1080/2.2;
+  const closeMax = 1080*0.95;
+  const eyelidY = baseHalf + (closeMax-baseHalf)*blinkProgress;
 
   ctx.fillStyle="black";
   ctx.beginPath();
-  ctx.moveTo(-canvas.width/2, -canvas.height/2);
-  ctx.lineTo(-canvas.width/2, eyelidY - centerX);
-  ctx.quadraticCurveTo(0, eyelidY - centerX + 80, canvas.width/2, eyelidY - centerX);
-  ctx.lineTo(canvas.width/2, -canvas.height/2);
+  ctx.moveTo(-1920/2, -1080/2);
+  ctx.lineTo(-1920/2, eyelidY - 1080/2);
+  ctx.quadraticCurveTo(0, eyelidY+80 -1080/2, 1920/2, eyelidY-1080/2);
+  ctx.lineTo(1920/2, -1080/2);
   ctx.closePath();
   ctx.fill();
 
   ctx.restore();
 }
 
-// ---------------- アニメーション関数 ----------------
+// ---- アニメーション関数 ----
 function blink(times=1) {
   return new Promise(resolve=>{
     let count=0;
@@ -198,6 +150,7 @@ function animateBlink() {
   });
 }
 
+// ---- 黒目移動 ----
 function moveEyes() {
   return new Promise(resolve=>{
     const range = ((siro.width/2)+pupilRangeExtra) * 0.7;
@@ -263,7 +216,7 @@ function interruptAndReact(){
   requestAnimationFrame(step);
 }
 
-// ---------------- アニメーションパターン ----------------
+// ---- アニメーションパターン ----
 async function playPatternB(){ 
   await blink(1); 
   await moveEyes(); 
@@ -275,24 +228,69 @@ async function playPatternC(){
   await new Promise(r=>setTimeout(r,3000));
 }
 
+// ---- アニメーションループ ----
 async function startLoop(){
   if(animationRunning || reactingToSound) return;
   animationRunning=true;
   drawEye();
+
   const next = Math.random() < 0.5 ? playPatternB : playPatternC;
   await next();
+
   animationRunning=false;
   if(!reactingToSound) setTimeout(startLoop,1000);
 }
 
-// ---------------- 初期起動 ----------------
-loadImages({siro:"siro.png", kuro:"kuro.png"}, (imgs)=>{
-  siro = imgs.siro;
-  kuro = imgs.kuro;
+// ---- 音声入力 ----
+let audioContext, analyser, dataArray;
+let soundThreshold = 35;
+
+async function initMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    analyser.fftSize = 256;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    monitorSound();
+  } catch (err) { console.error('マイクアクセス拒否:', err); }
+}
+
+function monitorSound() {
+  if (!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+  const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
+
+  if (avg > soundThreshold && !reactingToSound) {
+    reactingToSound = true;
+    if (returnTimer) { clearTimeout(returnTimer); returnTimer=null; }
+    animationRunning = false;
+    interruptAndReact();
+  }
+
+  if (avg < soundThreshold*0.6 && reactingToSound) {
+    if (!returnTimer) {
+      returnTimer = setTimeout(()=>{
+        moveToCenter(()=>{
+          reactingToSound=false;
+          startLoop();
+        });
+        returnTimer=null;
+      }, 3000);
+    }
+  }
+
+  requestAnimationFrame(monitorSound);
+}
+
+// ---- 初期起動 ----
+siro.onload = ()=>{
   drawEye();
   initMic();
   startLoop();
-});
+};
 </script>
 </body>
 </html>
